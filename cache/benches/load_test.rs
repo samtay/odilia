@@ -19,9 +19,9 @@ async fn add_all(cache: &Cache, items: Vec<CacheItem>) {
 
 /// Load the given items into cache via repeated `Cache::add`.
 async fn add(cache: &Cache, items: Vec<CacheItem>) {
-    for item in items {
-        cache.add(item).await;
-    }
+	for item in items {
+		cache.add(item).await;
+	}
 }
 
 /// For each child, fetch it and all of its ancestors via `Cache::get`.
@@ -46,9 +46,9 @@ async fn traverse_cache(cache: &Cache, children: Vec<AccessibleId>) {
 async fn reads_while_writing(cache: &Cache, ids: Vec<AccessibleId>, items: Vec<CacheItem>) {
 	let cache_1 = cache.clone();
 	let mut write_handle = tokio::spawn(async move {
-        for item in items {
-            cache_1.add(item).await;
-        }
+		for item in items {
+			cache_1.add(item).await;
+		}
 	});
 	let cache_2 = cache.clone();
 	let mut read_handle = tokio::spawn(async move {
