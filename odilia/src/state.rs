@@ -7,17 +7,23 @@ use tokio::sync::{mpsc::Sender, Mutex};
 use zbus::{fdo::DBusProxy, names::UniqueName, zvariant::ObjectPath, MatchRule, MessageType};
 
 use atspi::{
-	accessible::AccessibleProxy, accessible_ext::AccessibleExt, cache::CacheProxy,
-	convertable::Convertable, signify::Signified, text::Granularity,
+	accessible::AccessibleProxy,
+	accessible_ext::AccessibleExt,
+	cache::CacheProxy,
+	convertable::Convertable,
+	events::{GenericEvent, HasMatchRule, HasRegistryEventString},
+	signify::Signified,
+	text::Granularity,
+	AccessibilityConnection,
 };
 use odilia_cache::{AccessiblePrimitive, Cache};
 use odilia_common::{
-	modes::ScreenReaderMode, settings::ApplicationConfig, types::TextSelectionArea,
-	Result as OdiliaResult,
+	errors::OdiliaError, modes::ScreenReaderMode, settings::ApplicationConfig,
+	types::TextSelectionArea, Result as OdiliaResult,
 };
 
 pub struct ScreenReaderState {
-	pub atspi: atspi::Connection,
+	pub atspi: AccessibilityConnection,
 	pub dbus: DBusProxy<'static>,
 	pub ssip: Sender<SSIPRequest>,
 	pub config: ApplicationConfig,
@@ -32,7 +38,7 @@ pub struct ScreenReaderState {
 impl ScreenReaderState {
 	#[tracing::instrument]
 	pub async fn new(ssip: Sender<SSIPRequest>) -> eyre::Result<ScreenReaderState> {
-		let atspi = atspi::Connection::open()
+		let atspi = AccessibilityConnection::open()
 			.await
 			.wrap_err("Could not connect to at-spi bus")?;
 		let dbus = DBusProxy::new(atspi.connection())
@@ -127,19 +133,17 @@ impl ScreenReaderState {
 		Ok(text_selection)
 	}
 
-	pub async fn register_event(&self, event: &str) -> OdiliaResult<()> {
-		let match_rule = event_to_match_rule(event)?;
-		self.dbus.add_match_rule(match_rule).await?;
-		self.atspi.register_event(event).await?;
-		Ok(())
+	pub async fn register_event<E: HasRegistryEventString + HasMatchRule>(
+		&self,
+	) -> OdiliaResult<()> {
+		self.atspi.register_event::<E>().await.map_err(OdiliaError::from)
 	}
 
 	#[allow(dead_code)]
-	pub async fn deregister_event(&self, event: &str) -> OdiliaResult<()> {
-		let match_rule = event_to_match_rule(event)?;
-		self.dbus.remove_match_rule(match_rule).await?;
-		self.atspi.deregister_event(event).await?;
-		Ok(())
+	pub async fn deregister_event<E: HasRegistryEventString + HasMatchRule>(
+		&self,
+	) -> OdiliaResult<()> {
+		self.atspi.deregister_event::<E>().await.map_err(OdiliaError::from)
 	}
 
 	pub fn connection(&self) -> &zbus::Connection {
@@ -238,21 +242,4 @@ impl ScreenReaderState {
 		self.dbus.add_match_rule(cache_rule).await?;
 		Ok(())
 	}
-}
-use atspi::events::GenericEvent;
-
-/// Converts an at-spi event string ("Object:StateChanged:Focused"), into a DBus match rule ("type='signal',interface='org.a11y.atspi.Event.Object',member='StateChanged'")
-fn event_to_match_rule(event: &str) -> OdiliaResult<zbus::MatchRule> {
-	let mut components = event.split(':');
-	let interface = components
-		.next()
-		.expect("Event should consist of at least 2 components separated by ':'");
-	let member = components
-		.next()
-		.expect("Event should consist of at least 2 components separated by ':'");
-	Ok(MatchRule::builder()
-		.msg_type(MessageType::Signal)
-		.interface(format!("org.a11y.atspi.Event.{interface}"))?
-		.member(member)?
-		.build())
 }
